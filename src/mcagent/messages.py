@@ -49,8 +49,8 @@ class ToolUseBlock(Block):
 @dataclass
 class ToolResult:
     tool_use_id: str
-    type: Literal["tool_result"]
     content: str
+    type: Literal["tool_result"] = "tool_result"
 
 
 @dataclass

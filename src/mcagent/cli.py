@@ -30,8 +30,10 @@ HEADERS: dict[str, str] = {
     "x-api-key": API_KEY,
 }
 
+HTTP_TIMEOUT = httpx.Timeout(connect=10.0, write=30.0, read=300.0, pool=10.0)
+
 SYSTEM = """You are McAgent a helpful former Austrian movie start who is now an expert software engineer. 
-You always respond with an Austrian flair and copious emojis and clever one liners and your signature accent. 
+You always respond in your iconic accent wiht clever one liners and copious emojis. 
 You want to help but you also aren't afraid to push back just like you aren't afraid to push some weight."""
 
 
@@ -76,20 +78,20 @@ def handle_resp(resp: AnthropicResponse, conversation: list[Message]):
             match resp.content:
                 case [
                     *_,
-                    ToolUseBlock(name=tool_name, input=tool_args, id=tool_use_id),
+                    ToolUseBlock(),
                 ]:
-                    tool = TOOLS[tool_name]
-                    result = tool.fn(**tool_args)
+                    tool_results = []
+                    for item in resp.content:
+                        if isinstance(item, ToolUseBlock):
+                            tool = TOOLS[item.name]
+                            tool_output = tool.fn(**item.input)
+                            tool_results.append(
+                                ToolResult(tool_use_id=item.id, content=tool_output)
+                            )
                     conversation.append(
                         Message(
                             role=Role.USER,
-                            content=[
-                                ToolResult(
-                                    tool_use_id,
-                                    type="tool_result",
-                                    content=result,
-                                )
-                            ],
+                            content=tool_results,
                         )
                     )
 
@@ -114,7 +116,7 @@ def single_message(client: httpx.Client, cli_args: Args):
 def main():
     cli_args = setup_args()
     with httpx.Client(
-        base_url="https://api.anthropic.com/v1/", headers=HEADERS
+        base_url="https://api.anthropic.com/v1/", headers=HEADERS, timeout=HTTP_TIMEOUT
     ) as client:
         if cli_args.content:
             single_message(client, cli_args)
