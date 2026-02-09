@@ -10,7 +10,9 @@ from mcagent.messages import (
     AnthropicResponse,
     Message,
     Role,
+    TextBlock,
     ToolResult,
+    ToolUseBlock,
 )
 from mcagent.tools import TOOLS
 from mcagent.types import Models
@@ -61,46 +63,50 @@ def main():
             resp_parsed = AnthropicResponse.from_json(resp_body)
             print(resp_parsed)
         else:
-            messages = []
+            conversation = []
             usr_msg = input("User: ")
-            messages.append(Message(role=Role.USER, content=usr_msg))
+            conversation.append(Message(role=Role.USER, content=usr_msg))
             while True:
                 anth_req = AnthropicRequest(
                     max_tokens=cli_args.max_tokens,
                     model=cli_args.model,
-                    messages=messages,
+                    messages=conversation,
                     tools=[tool.to_dict() for tool in TOOLS.values()],
                 )
                 resp = client.post("messages", json=asdict(anth_req))
                 resp_body = resp.json()
                 resp_parsed = AnthropicResponse.from_json(resp_body)
+                for item in resp_parsed.content:
+                    conversation.append(Message(Role.ASSISTANT, content=[item]))
+                    match item:
+                        case TextBlock() as tb:
+                            print("Agent: " + tb.text)
                 match resp_parsed.stop_reason:
                     case "end_turn":
-                        print("Agent: " + resp_parsed.content[0].text)
                         next_msg = input("User: ")
-                        messages.append(Message(role=Role.USER, content=next_msg))
+                        conversation.append(Message(role=Role.USER, content=next_msg))
                     case "tool_use":
-                        messages += [
-                            Message(role=Role.ASSISTANT, content=[item])
-                            for item in resp_parsed.content
-                        ]
-                        agent_resp = resp_parsed.content[0].text
-                        print("Agent: " + agent_resp)
-                        tool_name = resp_parsed.content[1].name
-                        tool_args = resp_parsed.content[1].input
-                        tool_use_id = resp_parsed.content[1].id
-                        tool = TOOLS[tool_name]
-                        result = tool.fn(**tool_args)
-                        messages.append(
-                            Message(
-                                role=Role.USER,
-                                content=[
-                                    ToolResult(
-                                        tool_use_id, type="tool_result", content=result
+                        match resp_parsed.content:
+                            case [
+                                *_,
+                                ToolUseBlock(
+                                    name=tool_name, input=tool_args, id=tool_use_id
+                                ),
+                            ]:
+                                tool = TOOLS[tool_name]
+                                result = tool.fn(**tool_args)
+                                conversation.append(
+                                    Message(
+                                        role=Role.USER,
+                                        content=[
+                                            ToolResult(
+                                                tool_use_id,
+                                                type="tool_result",
+                                                content=result,
+                                            )
+                                        ],
                                     )
-                                ],
-                            )
-                        )
+                                )
 
 
 if __name__ == "__main__":
