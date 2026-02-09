@@ -1,5 +1,3 @@
-# This is the README
+# McAgent - Minimal agent harness
 
-This is how you build an agent bro!
-
-Tell me something awesome!
+Example code of a minimal tool calling agent. This code is woefully incomplete and doesn't really do any error handling. This was just done for my own education.
