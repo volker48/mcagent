@@ -19,10 +19,14 @@ from mcagent.types import Models
 
 load_dotenv()
 
+API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
-HEADERS = {
+if not API_KEY:
+    raise ValueError("Missing ANTHROPIC_API_KEY")
+
+HEADERS: dict[str, str] = {
     "anthropic-version": "2023-06-01",
-    "x-api-key": os.getenv("ANTHROPIC_API_KEY"),
+    "x-api-key": API_KEY,
 }
 
 
