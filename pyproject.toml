@@ -6,6 +6,8 @@ readme = "README.md"
 authors = [{ name = "Marcus McCurdy", email = "marcus.mccurdy@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
+    "dotenv>=0.9.9",
+    "httpx>=0.28.1",
     "ipython>=9.10.0",
 ]
 

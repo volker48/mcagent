@@ -39,103 +39,90 @@ You want to help but you also aren't afraid to push back just like you aren't af
 
 @dataclass(frozen=True)
 class Args:
-    content: str | None
     model: Models
     max_tokens: int
 
 
 def setup_args() -> Args:
     parser = argparse.ArgumentParser()
-    parser.add_argument("content", nargs="?", default=None)
     parser.add_argument(
         "-m",
         "--model",
         type=str,
         choices=["claude-opus-4-6", "claude-haiku-4-5", "claude-sonnet-4-5"],
-        default="claude-haiku-4-5",
+        default="claude-sonnet-4-5",
         help="Select one of the Claude models.",
     )
     parser.add_argument("--max-tokens", type=int, default=1024)
     ns = parser.parse_args()
     return Args(
-        content=ns.content,
         model=cast(Models, ns.model),
         max_tokens=ns.max_tokens,
     )
 
 
 def handle_resp(resp: AnthropicResponse, conversation: list[Message]):
+    tool_results = []
     for item in resp.content:
         conversation.append(Message(Role.ASSISTANT, content=[item]))
         match item:
             case TextBlock() as tb:
                 print("Agent: " + tb.text)
-    match resp.stop_reason:
-        case "end_turn":
-            next_msg = input("User: ")
-            conversation.append(Message(role=Role.USER, content=next_msg))
-        case "tool_use":
-            match resp.content:
-                case [
-                    *_,
-                    ToolUseBlock(),
-                ]:
-                    tool_results = []
-                    for item in resp.content:
-                        if isinstance(item, ToolUseBlock):
-                            tool = TOOLS[item.name]
-                            tool_output = tool.fn(**item.input)
-                            tool_results.append(
-                                ToolResult(tool_use_id=item.id, content=tool_output)
-                            )
-                    conversation.append(
-                        Message(
-                            role=Role.USER,
-                            content=tool_results,
-                        )
-                    )
+            case ToolUseBlock(id=id, input=input, name=name):
+                tool = TOOLS[name]
+                tool_output = tool.fn(**input)
+                tool_results.append(ToolResult(tool_use_id=id, content=tool_output))
+    if tool_results:
+        conversation.append(
+            Message(
+                role=Role.USER,
+                content=tool_results,
+            )
+        )
 
 
-def single_message(client: httpx.Client, cli_args: Args):
-    if not cli_args.content:
-        raise ValueError("No content")
-    conversation = [Message(role=Role.USER, content=cli_args.content)]
+def send(
+    client: httpx.Client,
+    max_tokens: int,
+    model: Models,
+    tools: list[dict],
+    conversation=list[Message],
+) -> AnthropicResponse:
     anth_req = AnthropicRequest(
-        max_tokens=cli_args.max_tokens,
-        model=cli_args.model,
+        max_tokens=max_tokens,
+        model=model,
         messages=conversation,
-        tools=[tool.to_dict() for tool in TOOLS.values()],
+        tools=tools,
         system=SYSTEM,
     )
     resp = client.post("messages", json=asdict(anth_req))
     resp_body = resp.json()
-    resp_parsed = AnthropicResponse.from_json(resp_body)
-    handle_resp(resp_parsed, conversation=conversation)
+    return AnthropicResponse.from_json(resp_body)
 
 
 def main():
-    cli_args = setup_args()
+    args = setup_args()
+    conversation: list[Message] = []
+    tools = [tool.to_dict() for tool in TOOLS.values()]
     with httpx.Client(
-        base_url="https://api.anthropic.com/v1/", headers=HEADERS, timeout=HTTP_TIMEOUT
+        base_url="https://api.anthropic.com/v1/",
+        headers=HEADERS,
+        timeout=HTTP_TIMEOUT,
     ) as client:
-        if cli_args.content:
-            single_message(client, cli_args)
-        else:
-            conversation = []
+        while True:
             usr_msg = input("User: ")
             conversation.append(Message(role=Role.USER, content=usr_msg))
             while True:
-                anth_req = AnthropicRequest(
-                    max_tokens=cli_args.max_tokens,
-                    model=cli_args.model,
-                    messages=conversation,
-                    tools=[tool.to_dict() for tool in TOOLS.values()],
-                    system=SYSTEM,
+                resp = send(
+                    client=client,
+                    max_tokens=args.max_tokens,
+                    model=args.model,
+                    tools=tools,
+                    conversation=conversation,
                 )
-                resp = client.post("messages", json=asdict(anth_req))
-                resp_body = resp.json()
-                resp_parsed = AnthropicResponse.from_json(resp_body)
-                handle_resp(resp_parsed, conversation)
+                handle_resp(resp, conversation)
+                if resp.stop_reason == "end_turn":
+                    break
 
 
 if __name__ == "__main__":
