@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 from dataclasses import asdict, dataclass
 from typing import cast
@@ -17,6 +18,9 @@ from mcagent.messages import (
 )
 from mcagent.tools import TOOLS
 from mcagent.types import Models
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -69,6 +73,7 @@ def handle_resp(resp: AnthropicResponse, conversation: list[Message]):
             case TextBlock() as tb:
                 print("Agent: " + tb.text)
             case ToolUseBlock(id=id, input=input, name=name):
+                logger.info(f"Tool call: {name} args: {input}")
                 tool = TOOLS[name]
                 tool_output = tool.fn(**input)
                 tool_results.append(ToolResult(tool_use_id=id, content=tool_output))
